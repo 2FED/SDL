@@ -384,10 +384,66 @@ static int WINDOWS_JoystickGetCount(void)
     return nJoysticks;
 }
 
+#ifdef SDL_JOYSTICK_XINPUT
+/* ReXGlue KI-040: XInput user-index changes do not always produce a HID
+   device-interface notification (e.g. a 2.4 GHz dongle that stays enumerated
+   while its controller re-pairs, or a pad that finishes pairing after the
+   300 ms / 2 s retry timers). Upstream only polls XInput when device
+   notifications are unavailable, so such a controller is never re-scanned.
+   At most once per second, compare the XInput connected-user mask with the
+   mask the last enumeration saw and force a normal re-enumeration when they
+   differ. Skipped while XInput is disabled/unloaded and while RawInput owns
+   XInput-class pads (RawInput has its own hotplug, and XInput calls can upset
+   wireless adapters held by RawInput, see SDL_xinputjoystick.c). */
+#define SDL_XINPUT_HOTPLUG_POLL_MS 1000
+static Uint64 s_lastXInputHotplugPoll = 0;
+static bool s_xinputHotplugPollArmed = false;
+
+static void WINDOWS_PollXInputHotplug(void)
+{
+    Uint64 now;
+    Uint8 mask = 0;
+    Uint8 userId;
+
+    if (!s_xinputHotplugPollArmed || !SDL_XINPUT_Enabled() || !XINPUTGETCAPABILITIES) {
+        return;
+    }
+#ifdef SDL_JOYSTICK_RAWINPUT
+    if (RAWINPUT_IsEnabled()) {
+        return;
+    }
+#endif
+    now = SDL_GetTicks();
+    if ((now - s_lastXInputHotplugPoll) < SDL_XINPUT_HOTPLUG_POLL_MS) {
+        return;
+    }
+    s_lastXInputHotplugPoll = now;
+    for (userId = 0; userId < XUSER_MAX_COUNT; userId++) {
+        XINPUT_CAPABILITIES capabilities;
+        if (XINPUTGETCAPABILITIES(userId, XINPUT_FLAG_GAMEPAD, &capabilities) == ERROR_SUCCESS) {
+            mask |= (Uint8)(1u << userId);
+        }
+    }
+    if (mask != SDL_XINPUT_GetDetectedUserMask()) {
+        SetWindowsDeviceChanged();
+    }
+}
+
+static void WINDOWS_ResetXInputHotplugPoll(void)
+{
+    s_lastXInputHotplugPoll = 0;
+    s_xinputHotplugPollArmed = false;
+}
+#endif // SDL_JOYSTICK_XINPUT
+
 // detect any new joysticks being inserted into the system
 void WINDOWS_JoystickDetect(void)
 {
     JoyStick_DeviceData *pCurList = NULL;
+
+#ifdef SDL_JOYSTICK_XINPUT
+    WINDOWS_PollXInputHotplug();
+#endif
 
     // only enum the devices if the joystick thread told us something changed
     if (!WindowsDeviceChanged()) {
@@ -408,6 +464,11 @@ void WINDOWS_JoystickDetect(void)
 
     // Look for XInput devices. Do this last, so they're first in the final list.
     SDL_XINPUT_JoystickDetect(&pCurList);
+#ifdef SDL_JOYSTICK_XINPUT
+    // ReXGlue KI-040: the detected mask is now current; start (or restart) polling.
+    s_lastXInputHotplugPoll = SDL_GetTicks();
+    s_xinputHotplugPollArmed = true;
+#endif
 
     if (s_mutexJoyStickEnum) {
         SDL_UnlockMutex(s_mutexJoyStickEnum);
@@ -671,6 +732,9 @@ void WINDOWS_JoystickQuit(void)
 
     SDL_DINPUT_JoystickQuit();
     SDL_XINPUT_JoystickQuit();
+#ifdef SDL_JOYSTICK_XINPUT
+    WINDOWS_ResetXInputHotplugPoll();
+#endif
 
     WIN_QuitDeviceNotification();
 }

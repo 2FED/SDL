@@ -38,6 +38,8 @@ extern "C" {
  * Internal stuff.
  */
 static bool s_bXInputEnabled = false;
+// ReXGlue KI-040: XInput users reported connected by the last SDL_XINPUT_JoystickDetect().
+static Uint8 s_XInputDetectedUserMask = 0;
 
 bool SDL_XINPUT_Enabled(void)
 {
@@ -214,8 +216,10 @@ static void AddXInputDevice(Uint8 userid, BYTE SubType, JoyStick_DeviceData **pC
 void SDL_XINPUT_JoystickDetect(JoyStick_DeviceData **pContext)
 {
     int iuserid;
+    Uint8 detected_mask = 0;
 
     if (!s_bXInputEnabled) {
+        s_XInputDetectedUserMask = 0;
         return;
     }
 
@@ -224,9 +228,16 @@ void SDL_XINPUT_JoystickDetect(JoyStick_DeviceData **pContext)
         const Uint8 userid = (Uint8)iuserid;
         XINPUT_CAPABILITIES capabilities;
         if (XINPUTGETCAPABILITIES(userid, XINPUT_FLAG_GAMEPAD, &capabilities) == ERROR_SUCCESS) {
+            detected_mask |= (Uint8)(1u << userid);
             AddXInputDevice(userid, capabilities.SubType, pContext);
         }
     }
+    s_XInputDetectedUserMask = detected_mask;
+}
+
+Uint8 SDL_XINPUT_GetDetectedUserMask(void)
+{
+    return s_XInputDetectedUserMask;
 }
 
 bool SDL_XINPUT_JoystickPresent(Uint16 vendor, Uint16 product, Uint16 version)
@@ -418,6 +429,7 @@ void SDL_XINPUT_JoystickQuit(void)
         s_bXInputEnabled = false;
         WIN_UnloadXInputDLL();
     }
+    s_XInputDetectedUserMask = 0;
 }
 
 // Ends C function definitions when using C++
@@ -441,6 +453,11 @@ bool SDL_XINPUT_JoystickInit(void)
 
 void SDL_XINPUT_JoystickDetect(JoyStick_DeviceData **pContext)
 {
+}
+
+Uint8 SDL_XINPUT_GetDetectedUserMask(void)
+{
+    return 0;
 }
 
 bool SDL_XINPUT_JoystickPresent(Uint16 vendor, Uint16 product, Uint16 version)

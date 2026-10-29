@@ -30,6 +30,7 @@ extern "C" {
 extern bool SDL_XINPUT_Enabled(void);
 extern bool SDL_XINPUT_JoystickInit(void);
 extern void SDL_XINPUT_JoystickDetect(JoyStick_DeviceData **pContext);
+extern Uint8 SDL_XINPUT_GetDetectedUserMask(void); // ReXGlue KI-040
 extern bool SDL_XINPUT_JoystickPresent(Uint16 vendor, Uint16 product, Uint16 version);
 extern bool SDL_XINPUT_JoystickOpen(SDL_Joystick *joystick, JoyStick_DeviceData *joystickdevice);
 extern bool SDL_XINPUT_JoystickRumble(SDL_Joystick *joystick, Uint16 low_frequency_rumble, Uint16 high_frequency_rumble);
